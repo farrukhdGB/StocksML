@@ -397,7 +397,7 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
              verticalalignment='bottom', horizontalalignment='right',
              bbox=dict(boxstyle='round', alpha=0.2, facecolor='white'))
 
-    path = r'C:\Users\Farrukh\jupyter-Notebooks\STOCKS\predictions'
+    path = r'C:\Users\USERNAME\jupyter-Notebooks\STOCKS\predictions'
     fname = f'{current_date}_{ticker}.png'
     fpath = os.path.join(path, fname)
     plt.savefig(fpath, bbox_inches='tight')
