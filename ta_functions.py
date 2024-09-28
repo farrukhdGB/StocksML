@@ -36,7 +36,10 @@ def add_technical_indicators (df):
     df['OBV'] = calculate_obv(df)
 
     # Money Flow Index
-    df['MFI'] = calculate_mfi(df)
+    df['MFI'] = calculate_mfi(df, period=10)
+
+    # Calculate CCI
+    df['CCI'] = calculate_cci(df, period=10)
 
     # Bollinger Bands
     rolling_20 = close_prices.rolling(window=20)
@@ -47,7 +50,7 @@ def add_technical_indicators (df):
 
     # Momentum and ROC
     df['Momentum_10'] = close_prices - close_prices.shift(10)
-    df['Momentum_30'] = close_prices - close_prices.shift(14)
+    df['Momentum_30'] = close_prices - close_prices.shift(30)
     df['ROC_10'] = close_prices.pct_change(periods=10) * 100
     df['ROC_30'] = close_prices.pct_change(periods=14) * 100
 
@@ -97,7 +100,7 @@ def calculate_obv(data):
 
     return obv
 
-def calculate_mfi(data, period=14):
+def calculate_mfi(data, period=9):
     required_columns = ['High', 'Low', 'Close', 'Volume']
     if not all(column in data.columns for column in required_columns):
         raise ValueError(f"DataFrame must contain the following columns: {required_columns}")
@@ -115,9 +118,27 @@ def calculate_mfi(data, period=14):
 
     data['MFR'] = data['Positive_MF_sum'] / data['Negative_MF_sum']
     data['MFI'] = 100 - (100 / (1 + data['MFR']))
+
     data['MFI'] = np.where(data['Negative_MF_sum'] == 0, 100, data['MFI'])
 
+    # Drop unnecessary columns before returning MFI
+    data.drop(columns=['Positive_MF', 'Negative_MF', 'Positive_MF_sum', 'Negative_MF_sum', 'MFR'], inplace=True)
+
     return data['MFI']
+
+def calculate_cci(data, period=9):
+    if not all(col in data.columns for col in ['High', 'Low', 'Close']):
+        raise ValueError("DataFrame must contain 'High', 'Low', and 'Close' columns.")
+
+    data['Typical Price'] = (data['High'] + data['Low'] + data['Close']) / 3
+    data['SMA'] = data['Typical Price'].rolling(window=period).mean()
+    data['Mean Deviation'] = data['Typical Price'].rolling(window=period).apply(lambda x: (abs(x - x.mean())).mean(), raw=True)
+    data['CCI'] = (data['Typical Price'] - data['SMA']) / (0.015 * data['Mean Deviation'])
+    
+    # Drop unnecessary columns before returning 
+    data.drop(columns=['Typical Price', 'SMA', 'Mean Deviation'], inplace=True)
+    
+    return data['CCI']
 
 # Preparing the data for Machine Learning
 def prepare_ml_data(df):
@@ -125,7 +146,7 @@ def prepare_ml_data(df):
     features = ['SMA_14', 'SMA_50', 'SMA_200', 'EMA_50', 'EMA_200', 'RSI', 'BB_Middle', 'BB_Upper', 'BB_Lower',
                 'Momentum_10', 'Momentum_30', 'ROC_10', 'ROC_30', 'Bullish_Engulfing', 'Doji', 'Hammer', 
                 'Hanging_Man', 'Morning_Star', 'Evening_Star', 'Shooting_Star', 'Three_White_Soldiers', 
-                'Three_Black_Crows', 'Volume', 'ATR', 'MFI']
+                'Three_Black_Crows', 'Volume', 'ATR', 'MFI', 'CCI']
     
     df = df.dropna()
     X = df[features]
@@ -216,46 +237,6 @@ def generate_signal(predicted_prices, current_price, df):
         return "SELL"
     else:
         return "HODL / SIDELINES"
-
-
-# Plotting the stock price and technical indicators
-def plot_technical_indicators(df, ticker = '   ' ):
-    plt.figure(figsize=(14, 10))
-    
-    # Close Price and Moving Averages
-    plt.subplot(3, 1, 1)
-    plt.plot(df['Close'], label='Close Price', alpha=0.6)
-
-    plt.plot(df['EMA_50'], color = 'red', label='50-day EMA', alpha=0.6)
-    plt.plot(df['EMA_200'], color = 'magenta', label='200-day EMA', alpha=0.6)
-    
-    plt.title(f'{ticker} Price and Moving Averages')
-    
-    plt.legend()
-    #plt.yscale('log')
-    plt.minorticks_on()
-    plt.tick_params(which='both', axis='y', direction='in', length=6)
-    plt.tick_params(which='minor', axis='y', direction='in', length=4)
-    plt.grid(alpha=0.5)
-
-    # OBV
-    plt.subplot(3, 1, 2)
-    plt.plot(df['OBV'], label='OBV', color='gray', alpha=0.5)
-    plt.title('On Balance Volume')
-    plt.legend()
-    plt.grid(alpha=0.5)
-    
-    # RSI
-    plt.subplot(3, 1, 3)
-    plt.plot(df['RSI'], label='RSI', color='gray', alpha=0.5)
-    plt.title('Relative Strength Index (RSI)')
-    plt.axhline(70, color='red', linestyle='--', alpha=0.5)
-    plt.axhline(30, color='green', linestyle='--', alpha=0.5)
-    plt.legend()
-
-    plt.tight_layout()
-    plt.grid(alpha=0.5)
-    plt.show()
     
 #### PREDICT PRICES #####
 def predict_prices(model, recent_data, scaler, num_days=5, window_size=30):
@@ -263,7 +244,7 @@ def predict_prices(model, recent_data, scaler, num_days=5, window_size=30):
     features = ['SMA_14', 'SMA_50', 'SMA_200', 'EMA_50', 'EMA_200', 'RSI', 'BB_Middle', 'BB_Upper', 'BB_Lower',
                 'Momentum_10', 'Momentum_30', 'ROC_10', 'ROC_30', 'Bullish_Engulfing', 'Doji', 'Hammer', 
                 'Hanging_Man', 'Morning_Star', 'Evening_Star', 'Shooting_Star', 'Three_White_Soldiers', 
-                'Three_Black_Crows', 'Volume', 'ATR', 'MFI']
+                'Three_Black_Crows', 'Volume', 'ATR', 'MFI', 'CCI']
     
     last_data = recent_data.copy()  # Copy the whole dataframe to modify
     
@@ -279,9 +260,16 @@ def predict_prices(model, recent_data, scaler, num_days=5, window_size=30):
         sliced['SMA_200'] = sliced['Close'].rolling(window=200, min_periods=1).mean()
         sliced['EMA_50'] = sliced['Close'].ewm(span=50, adjust=False).mean()
         sliced['EMA_200'] = sliced['Close'].ewm(span=200, adjust=False).mean()
-        
+
+        # Momentum and ROC
+        sliced['Momentum_10'] = sliced['Close'] - sliced['Close'].shift(10)
+        sliced['Momentum_30'] = sliced['Close'] - sliced['Close'].shift(30)
+        sliced['ROC_10'] = sliced['Close'].pct_change(periods=10) * 100
+        sliced['ROC_30'] = sliced['Close'].pct_change(periods=30) * 100  # Change to 30
+
         sliced['RSI'] = calculate_rsi(sliced)
         sliced['MFI'] = calculate_mfi(sliced)
+        sliced['CCI'] = calculate_cci(sliced)
         
         sliced['BB_Middle'] = sliced['Close'].rolling(window=20, min_periods=1).mean()
         sliced['BB_Upper'] = sliced['BB_Middle'] + 2 * sliced['Close'].rolling(window=20, min_periods=1).std()
@@ -334,72 +322,3 @@ def add_candlestickpatterns(df):
     df['Three_Black_Crows'] = cs.detect_three_black_crows(df)
 
     return df
-
-def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5):
-    # Get the last month of historical data
-    
-    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    
-    end_date = stock_df.index[-1]
-    start_date = end_date - pd.DateOffset(months=1)
-    one_month_data = stock_df.loc[start_date:end_date]
-    
-    # Get the last known closing price
-    last_close = one_month_data['Close'].iloc[-1]
-    
-    # Generate dates for the predicted prices
-    prediction_dates = pd.date_range(start=end_date + pd.DateOffset(days=1), periods=num_days)
-    
-    # Create a DataFrame for predicted prices with the last known close included
-    predictions_df = pd.DataFrame({
-        'Date': [end_date] + list(prediction_dates),
-        'Predicted_Price': [last_close] + predicted_prices
-    }).set_index('Date')
-    
-    # Combine historical data with predicted prices
-    combined_df = pd.concat([one_month_data[['Close']], predictions_df])
-    
-    # Plot historical closing prices and predicted prices
-    plt.figure(figsize=(14, 7))
-    
-    # Plot historical closing prices
-    plt.plot(one_month_data.index, one_month_data['Close'], label='Historical Close Prices', 
-             color='blue', alpha=0.7)
-    
-    # Plot predicted prices
-    plt.plot(predictions_df.index, predictions_df['Predicted_Price'], label='Predicted Prices', 
-             color='blue', linestyle='--', marker='o', alpha=0.4)
-    
-    # Formatting the plot
-    plt.title(f'{ticker} {current_date} - Closing Prices and Next {num_days} Days Predictions')
-    plt.xlabel('Date')
-    plt.ylabel('Price')
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    # Calculate statistics
-    predicted_max = np.max(predicted_prices)
-    predicted_min = np.min(predicted_prices)
-    predicted_change = ((predicted_prices[-1] - last_close) / last_close) * 100
-
-    # Add text annotation
-    textstr = (f'Predicted % Change: {predicted_change:.2f}%\n'
-               f'Min Price: ${predicted_min:.2f}\n'
-               f'Max Price: ${predicted_max:.2f}')
-
-    plt.text(0.5, 0.5, ticker, transform=plt.gca().transAxes, 
-             fontsize=100, color='grey', alpha=0.1,  # Adjust transparency here
-             horizontalalignment='center', verticalalignment='center',
-             rotation=45, weight='bold', style='italic')
-    
-    plt.text(0.95, 0.05, textstr, transform=plt.gca().transAxes, fontsize=12,
-             verticalalignment='bottom', horizontalalignment='right',
-             bbox=dict(boxstyle='round', alpha=0.2, facecolor='white'))
-
-    path = r'C:\Users\USERNAME\jupyter-Notebooks\STOCKS\predictions'
-    fname = f'{current_date}_{ticker}.png'
-    fpath = os.path.join(path, fname)
-    plt.savefig(fpath, bbox_inches='tight')
-    plt.show()
-    plt.close()
