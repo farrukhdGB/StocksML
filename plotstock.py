@@ -90,6 +90,12 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
 
     last_close = one_month_data['Close'].iloc[-1]
     
+    # Calculate statistics for predictions
+    predicted_max = np.max(predicted_prices)
+    predicted_min = np.min(predicted_prices)
+    predicted_change = ((predicted_prices[-1] - last_close) / last_close) * 100
+    print("Predicted (min, max): " f'{predicted_min}, {predicted_max}')
+
     prediction_dates = pd.date_range(start=end_date + pd.DateOffset(days=1), periods=num_days)
     
     predictions_df = pd.DataFrame({
@@ -115,17 +121,14 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
                 color='blue', marker='o', markersize=2, alpha=0.4)
 
     # Set labels and grid for the first subplot
-    axs[0].set_title(f'{ticker} {current_date} - Closing Prices and Next {num_days} Days Predictions')
+    axs[0].set_title(f'{ticker} {current_date} - Closing Prices and Predictions')
     axs[0].set_xlabel('Date')
     axs[0].set_ylabel('Price')
     axs[0].legend()
     axs[0].grid(True)
     axs[0].tick_params(axis='x', rotation=0)
     
-    # Calculate statistics for predictions
-    predicted_max = np.max(predicted_prices)
-    predicted_min = np.min(predicted_prices)
-    predicted_change = ((predicted_prices[-1] - last_close) / last_close) * 100
+
 
     # Add annotation with prediction statistics
     textstr = (f'Predicted % Change: {predicted_change:.2f}%\n'
