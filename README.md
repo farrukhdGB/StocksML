@@ -9,7 +9,7 @@ multiple_stocks_ML_PriceTarget.ipynb
 
 It will save under the prediction folder - some images
 
-# CHAT GPT FEEDBACK ON PREDICTIONS
+# ChatGPT FEEDBACK ON PREDICTIONS
 When using the provided `predict_prices` function for price prediction, several potential drawbacks and limitations can affect the accuracy and reliability of the predictions. Here are the key cons to consider:
 
 1. **Error Accumulation from Sequential Predictions**
