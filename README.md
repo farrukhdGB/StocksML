@@ -9,6 +9,8 @@ multiple_stocks_ML_PriceTarget.ipynb
 
 It will save under the prediction folder - some images
 
+--**Don't rely on price prediction and direction if you don't know the basics of risk-management, stock volatility, and entry, sell patterns. Many people buy high and SL and call it wrong prediction instead of accepting their own mistakes. I created this to tell myself how to be patient to buy the dips in a bull run, while knowing the macro-economics are 50-50 past Fed Rates Cut. Also, many companies were trading at 200W averages so I felt that I need some entry points and directions to maintain 3-5% profits and buy the dips.
+
 # ChatGPT FEEDBACK ON PREDICTIONS
 When using the provided `predict_prices` function for price prediction, several potential drawbacks and limitations can affect the accuracy and reliability of the predictions. Here are the key cons to consider:
 
