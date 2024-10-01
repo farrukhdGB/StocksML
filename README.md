@@ -9,6 +9,7 @@ multiple_stocks_ML_PriceTarget.ipynb
 
 It will save under the prediction folder - some images
 
+# DISCLAIMER & CAUTIONARY NOTES
 - Don't rely on price prediction and direction if you don't know the basics of risk-management, stock volatility, and entry, sell patterns. Many people buy high and SL and call it wrong prediction instead of accepting their own mistakes. I created this to tell myself how to be patient to buy the dips in a bull run, while knowing the macro-economics are 50-50 past Fed Rates Cut. Also, many companies were trading at 200W averages so I felt that I need some entry points and directions to maintain 3-5% profits and buy the dips.
 - My guide will be to trade patterns and get help from this algorithm to see what the upcoming 2-Weeks can be. Patterns like Consolidation, Multiple Bottoms, Prices below 200-periods, etc, will guide you better enteries.
 - I don't do shorting and I'm a buyer. So, I do uni-directional trade.
