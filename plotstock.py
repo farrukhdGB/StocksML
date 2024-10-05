@@ -111,9 +111,9 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
     # Plot historical closing prices and indicators (EMA50, EMA200)
     axs[0].plot(one_month_data.index, one_month_data['Close'], label='Historical Close Prices', 
                 color='gray', alpha=0.7)
-    axs[0].plot(one_month_data.index, one_month_data['EMA_50'], label='EMA-50', 
+    axs[0].plot(one_month_data.index, one_month_data['EMA1'], label='EMA Short', 
                 color='red', alpha=0.7)
-    axs[0].plot(one_month_data.index, one_month_data['EMA_200'], label='EMA-200', 
+    axs[0].plot(one_month_data.index, one_month_data['EMA2'], label='EMA Long', 
                 color='magenta', alpha=0.7)
     
     # Plot predicted prices
@@ -121,7 +121,7 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
                 color='blue', marker='o', markersize=2, alpha=0.4)
 
     # Set labels and grid for the first subplot
-    axs[0].set_title(f'{ticker} {current_date} - Closing Prices and Predictions')
+    axs[0].set_title(f'{ticker} {current_date} - Closing Prices and ML Predictions (TIs w/o News/Media)')
     axs[0].set_xlabel('Date')
     axs[0].set_ylabel('Price')
     axs[0].legend()

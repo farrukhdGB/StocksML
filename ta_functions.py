@@ -2,71 +2,73 @@
 from imports import *
 import candlesticks as cs
 
+w10 = 10
+w20 = 20
+w30 = 30
+w40 = 40
+w50 = 50
+w100 = 100
+w200 = 200
+
 # Fetching historical data
 def get_stock_data(ticker, start_date, end_date):
     stock_data = yf.download(ticker, start=start_date, end=end_date)
     return stock_data
 
+def get_fed_rates(start_date, end_date):
+    rates = web.DataReader('FEDFUNDS', 'fred', start_date, end_date)
+    return rates
+
 # Adding technical indicators
 def add_technical_indicators (df):
     # Optimization: Compute rolling statistics in one go where possible to avoid repeated calls
-    close_prices = df['Close']
-    
-    # SMA
-    df['SMA_14'] = close_prices.rolling(window=14).mean()
-    df['SMA_50'] = close_prices.rolling(window=50).mean()
-    df['SMA_200'] = close_prices.rolling(window=200).mean()
+    close_prices = df.Close
 
-    # EMA
-    df['EMA_50'] = close_prices.ewm(span=50, adjust=False).mean()
-    df['EMA_200'] = close_prices.ewm(span=200, adjust=False).mean()
-
-    # RSI (Combined gain and loss into a single calculation to reduce repeated operations)
-    delta = close_prices.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean()
-    
-    rs = avg_gain / avg_loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-
-    # On-balance Volume
+    df['SMA1'], df['SMA2'], df['SMA3'] = calSMAs(close_prices)
+    df['EMA1'], df['EMA2'], df['EMA3'] = calEMAs(close_prices)
+    df['RSI'] = calculate_rsi(df)
     df['OBV'] = calculate_obv(df)
-
-    # Money Flow Index
-    df['MFI'] = calculate_mfi(df, period=10)
-
-    # Calculate CCI
-    df['CCI'] = calculate_cci(df, period=10)
-
-    # Bollinger Bands
-    rolling_20 = close_prices.rolling(window=20)
-    df['BB_Middle'] = rolling_20.mean()
-    rolling_std = rolling_20.std()
-    df['BB_Upper'] = df['BB_Middle'] + 2 * rolling_std
-    df['BB_Lower'] = df['BB_Middle'] - 2 * rolling_std
-
-    # Momentum and ROC
-    df['Momentum_10'] = close_prices - close_prices.shift(10)
-    df['Momentum_30'] = close_prices - close_prices.shift(30)
-    df['ROC_10'] = close_prices.pct_change(periods=10) * 100
-    df['ROC_30'] = close_prices.pct_change(periods=14) * 100
-
-    # ATR (Optimized true range calculation)
-    df['High_Low'] = df['High'] - df['Low']
-    df['High_Close'] = (df['High'] - df['Close'].shift(1)).abs()
-    df['Low_Close'] = (df['Low'] - df['Close'].shift(1)).abs()
-
-    df['True_Range'] = pd.concat([df['High_Low'], df['High_Close'], df['Low_Close']], axis=1).max(axis=1)
-    df['ATR'] = df['True_Range'].rolling(window=14).mean()
+    df['MFI'] = calculate_mfi(df)
+    df['CCI'] = calculate_cci(df)
+    
+    df = calculate_stochrsi(df)
+    df = calcBollingerBands(df)
+    
+    df['ATR'] = calculate_atr(df.High, df.Low, df.Close)
+    
+    df['Mom1'] = close_prices - close_prices.shift(20)
+    df['Mom2'] = close_prices - close_prices.shift(50)
+    
+    df['ROC1'] = close_prices.pct_change(periods=20) * 100
+    df['ROC2'] = close_prices.pct_change(periods=50) * 100
 
     # Drop rows with NaN values resulting from rolling calculations
     df.dropna(inplace=True)
 
     return df
 
+def calSMAs (close):
+    sma1 = close.rolling(window=10).mean()
+    sma2 = close.rolling(window=50).mean()
+    sma3 = close.rolling(window=200).mean()
+    return sma1, sma2, sma3
+
+def calEMAs (close):
+    ema1 = close.ewm(span=10, adjust=False).mean()
+    ema2 = close.ewm(span=50, adjust=False).mean()
+    ema3 = close.ewm(span=200, adjust=False).mean()
+    return ema1, ema2, ema3
+
+def calcBollingerBands (df):
+    # Bollinger Bands
+    close = df.Close
+    rolling_20 = close.rolling(window=w20)
+    df['BBm'] = rolling_20.mean()
+    rolling_std = rolling_20.std()
+    df['BBu'] = df['BBm'] + 2 * rolling_std
+    df['BBl'] = df['BBm'] - 2 * rolling_std
+    return df
+    
 def calculate_rsi(df, window=14):
     close_prices = df['Close']
     # Calculate price changes (delta)
@@ -88,6 +90,33 @@ def calculate_rsi(df, window=14):
 
     return rsi
 
+def calculate_stochrsi(df, rsi_period=14, stoch_period=20, d_period=9):
+
+    # Calculate lowest low and highest high for RSI over the stoch_period
+    lowest_low = df['RSI'].rolling(window=stoch_period).min()
+    highest_high = df['RSI'].rolling(window=stoch_period).max()
+    
+    # Calculate Stochastic RSI (%K)
+    df['StochRSI'] = (df['RSI'] - lowest_low) / (highest_high - lowest_low) * 100
+    
+    # Calculate %D as the SMA of %K
+    df['StochRSI_D'] = df['StochRSI'].rolling(window=d_period).mean()
+    
+    return df
+
+def calculate_atr(high, low, close):
+    # ATR (Optimized true range calculation)
+    hl = high - low
+    hc = (high - close.shift(1)).abs()
+    lc = (low - close.shift(1)).abs()
+
+    # Concatenate the Series into a DataFrame
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    
+    # Calculate the ATR with a rolling mean
+    atr = tr.rolling(window=14).mean()
+    return atr
+
 def calculate_obv(data):
     obv = [0]  # Initialize OBV with 0
     for i in range(1, len(data)):
@@ -100,7 +129,7 @@ def calculate_obv(data):
 
     return obv
 
-def calculate_mfi(data, period=9):
+def calculate_mfi(data, period=20):
     required_columns = ['High', 'Low', 'Close', 'Volume']
     if not all(column in data.columns for column in required_columns):
         raise ValueError(f"DataFrame must contain the following columns: {required_columns}")
@@ -122,11 +151,13 @@ def calculate_mfi(data, period=9):
     data['MFI'] = np.where(data['Negative_MF_sum'] == 0, 100, data['MFI'])
 
     # Drop unnecessary columns before returning MFI
-    data.drop(columns=['Positive_MF', 'Negative_MF', 'Positive_MF_sum', 'Negative_MF_sum', 'MFR'], inplace=True)
+    data.drop(columns=['TP', 'RMF', 'TP_diff', 'Positive_MF', 
+                       'Negative_MF', 'Positive_MF_sum', 'Negative_MF_sum', 
+                       'MFR'], inplace=True)
 
     return data['MFI']
 
-def calculate_cci(data, period=9):
+def calculate_cci(data, period=20):
     if not all(col in data.columns for col in ['High', 'Low', 'Close']):
         raise ValueError("DataFrame must contain 'High', 'Low', and 'Close' columns.")
 
@@ -143,10 +174,10 @@ def calculate_cci(data, period=9):
 # Preparing the data for Machine Learning
 def prepare_ml_data(df):
     # Include candlestick pattern features and new indicators
-    features = ['SMA_14', 'SMA_50', 'SMA_200', 'EMA_50', 'EMA_200', 'RSI', 'BB_Middle', 'BB_Upper', 'BB_Lower',
-                'Momentum_10', 'Momentum_30', 'ROC_10', 'ROC_30', 'Bullish_Engulfing', 'Doji', 'Hammer', 
-                'Hanging_Man', 'Morning_Star', 'Evening_Star', 'Shooting_Star', 'Three_White_Soldiers', 
-                'Three_Black_Crows', 'Volume', 'ATR', 'MFI', 'CCI']
+    features = ['SMA1', 'SMA2', 'SMA3', 'EMA1', 'EMA2', 'EMA3', 'RSI', 
+                'BBm', 'BBu', 'BBl', 'Mom1', 'Mom2', 'ROC1', 'ROC2', 
+                'Candlesticks', 'Volume', 'ATR', 'MFI', 'CCI', 
+                'StochRSI', 'StochRSI_D']
     
     df = df.dropna()
     X = df[features]
@@ -187,35 +218,35 @@ def generate_signal(predicted_prices, current_price, df):
     last_row = df.iloc[-1]
     
     # Technical indicator thresholds
-    sma_50_threshold = 0.02 
-    sma_200_threshold = 0.02
-    ema_50_threshold = 0.02
-    ema_200_threshold = 0.02
+    SMA2_threshold = 0.02 
+    SMA3_threshold = 0.02
+    EMA1_threshold = 0.02
+    EMA2_threshold = 0.02
     rsi_threshold_buy = 35
     rsi_threshold_sell = 65
     bb_threshold = 0.02
 
     # Extract the latest values of the technical indicators
-    sma_50 = last_row['SMA_50']
-    sma_200 = last_row['SMA_200']
-    ema_50 = last_row['EMA_50']
-    ema_200 = last_row['EMA_200']
+    SMA2 = last_row['SMA2']
+    SMA3 = last_row['SMA3']
+    EMA1 = last_row['EMA1']
+    EMA2 = last_row['EMA2']
     rsi = last_row['RSI']
-    bb_lower = last_row['BB_Lower']
-    bb_upper = last_row['BB_Upper']
+    BBl = last_row['BBl']
+    BBu = last_row['BBu']
 
     # Initialize signals
     buy_signal = False
     sell_signal = False
     
     # Check if current price is above the SMA and EMA thresholds
-    if current_price > (1 + sma_50_threshold) * sma_50:
+    if current_price > (1 + SMA2_threshold) * SMA2:
         buy_signal = True
-    if current_price > (1 + sma_200_threshold) * sma_200:
+    if current_price > (1 + SMA3_threshold) * SMA3:
         buy_signal = True
-    if current_price > (1 + ema_50_threshold) * ema_50:
+    if current_price > (1 + EMA1_threshold) * EMA1:
         buy_signal = True
-    if current_price > (1 + ema_200_threshold) * ema_200:
+    if current_price > (1 + EMA2_threshold) * EMA2:
         buy_signal = True
 
     # Check RSI for buy/sell signals
@@ -225,9 +256,9 @@ def generate_signal(predicted_prices, current_price, df):
         sell_signal = True
 
     # Check if current price is below the Bollinger Bands Lower Band
-    if current_price < (1 - bb_threshold) * bb_lower:
+    if current_price < (1 - bb_threshold) * BBl:
         buy_signal = True
-    if current_price > (1 + bb_threshold) * bb_upper:
+    if current_price > (1 + bb_threshold) * BBu:
         sell_signal = True
 
     # Generate final signal
@@ -238,13 +269,13 @@ def generate_signal(predicted_prices, current_price, df):
     else:
         return "HODL / SIDELINES"
     
-#### PREDICT PRICES #####
-def predict_prices(model, recent_data, scaler, num_days=5, window_size=30):
+##### PREDICT PRICES #####
+def predict_prices(model, recent_data, scaler, num_days=5, window_size=300):
     # Use the same features during prediction
-    features = ['SMA_14', 'SMA_50', 'SMA_200', 'EMA_50', 'EMA_200', 'RSI', 'BB_Middle', 'BB_Upper', 'BB_Lower',
-                'Momentum_10', 'Momentum_30', 'ROC_10', 'ROC_30', 'Bullish_Engulfing', 'Doji', 'Hammer', 
-                'Hanging_Man', 'Morning_Star', 'Evening_Star', 'Shooting_Star', 'Three_White_Soldiers', 
-                'Three_Black_Crows', 'Volume', 'ATR', 'MFI', 'CCI']
+    features = ['SMA1', 'SMA2', 'SMA3', 'EMA1', 'EMA2', 'EMA3', 'RSI', 
+                'BBm', 'BBu', 'BBl', 'Mom1', 'Mom2', 'ROC1', 'ROC2', 
+                'Candlesticks', 'Volume', 'ATR', 'MFI', 'CCI', 
+                'StochRSI', 'StochRSI_D']
     
     last_data = recent_data.copy()  # Copy the whole dataframe to modify
     
@@ -255,28 +286,21 @@ def predict_prices(model, recent_data, scaler, num_days=5, window_size=30):
         sliced = last_data.iloc[-window_size:].copy()
         
         # Ensure all technical indicators are calculated before prediction
-        sliced['SMA_14'] = sliced['Close'].rolling(window=14, min_periods=1).mean()
-        sliced['SMA_50'] = sliced['Close'].rolling(window=50, min_periods=1).mean()
-        sliced['SMA_200'] = sliced['Close'].rolling(window=200, min_periods=1).mean()
-        sliced['EMA_50'] = sliced['Close'].ewm(span=50, adjust=False).mean()
-        sliced['EMA_200'] = sliced['Close'].ewm(span=200, adjust=False).mean()
-
-        # Momentum and ROC
-        sliced['Momentum_10'] = sliced['Close'] - sliced['Close'].shift(10)
-        sliced['Momentum_30'] = sliced['Close'] - sliced['Close'].shift(30)
-        sliced['ROC_10'] = sliced['Close'].pct_change(periods=10) * 100
-        sliced['ROC_30'] = sliced['Close'].pct_change(periods=30) * 100  # Change to 30
-
+        sliced['SMA1'], sliced['SMA2'], sliced['SMA3'] = calSMAs(sliced['Close'])
+        sliced['EMA1'], sliced['EMA2'], sliced['EMA3'] = calEMAs(sliced['Close'])
         sliced['RSI'] = calculate_rsi(sliced)
         sliced['MFI'] = calculate_mfi(sliced)
         sliced['CCI'] = calculate_cci(sliced)
+
+        sliced = calcBollingerBands(sliced)
+        sliced = calculate_stochrsi(sliced)
         
-        sliced['BB_Middle'] = sliced['Close'].rolling(window=20, min_periods=1).mean()
-        sliced['BB_Upper'] = sliced['BB_Middle'] + 2 * sliced['Close'].rolling(window=20, min_periods=1).std()
-        sliced['BB_Lower'] = sliced['BB_Middle'] - 2 * sliced['Close'].rolling(window=20, min_periods=1).std()
+        # Momentum and ROC
+        sliced['Mom1'] = sliced['Close'] - sliced['Close'].shift(20)
+        sliced['Mom2'] = sliced['Close'] - sliced['Close'].shift(50)
         
-        # Candlestick patterns (use actual data for pattern detection)
-        sliced = add_candlestickpatterns(sliced)
+        sliced['ROC1'] = sliced['Close'].pct_change(periods=20) * 100
+        sliced['ROC2'] = sliced['Close'].pct_change(periods=50) * 100  # Change to 30
 
         # Extract features for the current prediction
         inData = sliced[features].iloc[-1:]
@@ -304,12 +328,10 @@ def predict_prices(model, recent_data, scaler, num_days=5, window_size=30):
         last_data = pd.concat([last_data, new_row])
     
     return predicted_prices
-
     
 def add_candlestickpatterns(df):
     # Ensure df is a copy, not a view, to avoid the SettingWithCopyWarning
     df = df.copy()
-
     # Detect candlestick patterns and add to dataframe
     df['Bullish_Engulfing'] = cs.detect_bullish_engulfing(df)
     df['Doji'] = cs.detect_doji(df)
@@ -320,5 +342,16 @@ def add_candlestickpatterns(df):
     df['Shooting_Star'] = cs.detect_shooting_star(df)
     df['Three_White_Soldiers'] = cs.detect_three_white_soldiers(df)
     df['Three_Black_Crows'] = cs.detect_three_black_crows(df)
+
+    # Combine all patterns into one column
+    df['Candlesticks'] = (df['Doji'] +
+                          df['Hammer'] * 2 + 
+                          df['Hanging_Man'] * 3 + 
+                          df['Morning_Star'] * 4 + 
+                          df['Evening_Star'] * 5 +
+                          df['Shooting_Star'] * 6 +
+                          df['Three_White_Soldiers'] * 7 + 
+                          df['Three_Black_Crows'] * 8 + 
+                          df['Bullish_Engulfing'] * 9)
 
     return df
