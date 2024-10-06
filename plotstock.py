@@ -175,3 +175,59 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
     # Display the plot
     plt.show()
     plt.close()
+
+def plot_obv_pvt(df, pvt=True, obv=True, ticker='NONE', nrMonths = 12):
+    end_date = df.index[-1]
+    start_date = end_date - pd.DateOffset(months=nrMonths)
+    
+    # Create a copy of the sliced DataFrame to avoid SettingWithCopyWarning
+    df2 = df.loc[start_date:end_date].copy()
+    
+    # Scale OBV to the range of Close prices
+    if obv:
+        obv_min, obv_max = df2['OBV'].min(), df2['OBV'].max()
+        close_min, close_max = df2['Close'].min(), df2['Close'].max()
+        df2['OBV_scaled'] = ((df2['OBV'] - obv_min) / (obv_max - obv_min)) * (close_max - close_min) + close_min
+
+    # Plotting Close Price, PVT, and OBV
+    fig, ax1 = plt.subplots(figsize=(14, 8))
+    
+    # Plot Close Price
+    ax1.plot(df2.index, df2['Close'], color='black', label='Close Price')
+    ax1.set_ylabel('Close Price', color='black')
+    ax1.tick_params(axis='y', labelcolor='black')
+    
+    # Initialize empty variables for lines and labels to manage legend later
+    lines1, labels1, lines2, labels2, lines3, labels3 = [], [], [], [], [], []
+    
+    if pvt:
+        # Plot PVT on the secondary axis
+        ax2 = ax1.twinx()
+        ax2.plot(df2.index, df2['PVT'], color='blue', label='Price Volume Trend (PVT)')
+        ax2.set_ylabel('PVT', color='blue')
+        ax2.tick_params(axis='y', labelcolor='blue')
+        lines2, labels2 = ax2.get_legend_handles_labels()
+    
+    if obv:
+        # Plot scaled OBV on a third axis
+        ax3 = ax1.twinx()
+        ax3.spines['right'].set_position(('outward', 60))  # Move third axis outward
+        ax3.plot(df2.index, df2['OBV_scaled'], color='green', label='On-Balance Volume (OBV)', linestyle='--')
+        ax3.set_ylabel('Scaled OBV', color='green')
+        ax3.tick_params(axis='y', labelcolor='green')
+        lines3, labels3 = ax3.get_legend_handles_labels()
+    
+    # Collect all lines and labels from each axis for the legend
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    
+    # Add legend within the figure (adjust position)
+    fig.legend(lines1 + lines2 + lines3, labels1 + labels2 + labels3, loc='upper center', bbox_to_anchor=(0.5, 0.95), ncol=3)
+
+    fig.text(0.5, 0.5, ticker, transform=ax1.transAxes, 
+            fontsize=50, color='grey', alpha=0.2,  # Adjust transparency here
+            horizontalalignment='center', verticalalignment='center',
+            rotation=0, weight='bold', style='italic')
+
+    plt.title(f'{ticker} {end_date} - Close Price, PVT, and Scaled OBV Combined')
+    plt.grid(True)
+    plt.show()

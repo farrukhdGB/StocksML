@@ -28,6 +28,7 @@ def add_technical_indicators (df):
     df['EMA1'], df['EMA2'], df['EMA3'] = calEMAs(close_prices)
     df['RSI'] = calculate_rsi(df)
     df['OBV'] = calculate_obv(df)
+    df['PVT'] = calculate_pvt(df)
     df['MFI'] = calculate_mfi(df)
     df['CCI'] = calculate_cci(df)
     
@@ -128,6 +129,10 @@ def calculate_obv(data):
             obv.append(obv[-1])  # No change if close prices are equal
 
     return obv
+
+def calculate_pvt(df):
+    tmp = ((df['Close'] - df['Close'].shift(1)) / df['Close'].shift(1)) * df['Volume']
+    return tmp.cumsum()
 
 def calculate_mfi(data, period=20):
     required_columns = ['High', 'Low', 'Close', 'Volume']
