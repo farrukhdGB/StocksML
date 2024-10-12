@@ -52,18 +52,11 @@ def plot_technical_indicators(df, ticker = '   ' ):
     plt.title('On Balance Volume')
     plt.legend()
     plt.grid(alpha=0.5)
-    '''
-    # RSI
-    plt.subplot(3, 1, 3)
-    plt.plot(df['RSI'], label='RSI', color='gray', alpha=0.5)
-    plt.title('Relative Strength Index (RSI)')
-    plt.axhline(70, color='red', linestyle='--', alpha=0.5)
-    plt.axhline(30, color='green', linestyle='--', alpha=0.5)
-    plt.legend()
-    '''
+
     # RSI and CCI with Secondary Axis
     plt.subplot(3, 1, 3)
-    plt.plot(df['RSI'], label='RSI', color='gray', alpha=0.5)
+    #plt.plot(df['RSI'], label='RSI', color='gray', alpha=0.5)
+    plt.plot(df['RSI2'], label='RSI-long', color='red', alpha=0.5)
     plt.axhline(70, color='red', linestyle='--', alpha=0.5, label='Overbought (70)')
     plt.axhline(30, color='green', linestyle='--', alpha=0.5, label='Oversold (30)')
     
@@ -129,7 +122,6 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
     axs[0].tick_params(axis='x', rotation=0)
     
 
-
     # Add annotation with prediction statistics
     textstr = (f'Predicted % Change: {predicted_change:.2f}%\n'
                f'Min Price: ${predicted_min:.2f}\n'
@@ -154,6 +146,8 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
     # Plot Relative Strength Index (RSI) on the third subplot
     axs[2].plot(one_month_data.index, one_month_data['RSI'], label='Relative Strength Index (RSI)', 
                 color='gray', alpha=0.7)
+    axs[2].plot(one_month_data.index, one_month_data['RSI2'], label='Smoothed RSI', 
+                color='red', alpha=0.7)
     axs[2].axhline(70, color='red', linestyle='--', alpha=0.5)
     axs[2].axhline(30, color='green', linestyle='--', alpha=0.5)
     axs[2].set_ylabel('RSI')
@@ -180,9 +174,8 @@ def plot_obv_pvt(df, pvt=True, obv=True, ticker='NONE', nrMonths = 12):
     end_date = df.index[-1]
     start_date = end_date - pd.DateOffset(months=nrMonths)
     
-    # Create a copy of the sliced DataFrame to avoid SettingWithCopyWarning
     df2 = df.loc[start_date:end_date].copy()
-    
+
     # Scale OBV to the range of Close prices
     if obv:
         obv_min, obv_max = df2['OBV'].min(), df2['OBV'].max()

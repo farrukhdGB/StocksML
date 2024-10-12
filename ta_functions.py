@@ -26,11 +26,13 @@ def add_technical_indicators (df):
 
     df['SMA1'], df['SMA2'], df['SMA3'] = calSMAs(close_prices)
     df['EMA1'], df['EMA2'], df['EMA3'] = calEMAs(close_prices)
-    df['RSI'] = calculate_rsi(df)
+    df['RSI']= calculate_rsi(df)
+    df['RSI2']  = df['RSI'].rolling(window=28).mean()
     df['OBV'] = calculate_obv(df)
     df['PVT'] = calculate_pvt(df)
     df['MFI'] = calculate_mfi(df)
     df['CCI'] = calculate_cci(df)
+    df[['+DI', '-DI', 'ADX']] = calculate_dmi(df, n=14)
     
     df = calculate_stochrsi(df)
     df = calcBollingerBands(df)
@@ -51,13 +53,13 @@ def add_technical_indicators (df):
 def calSMAs (close):
     sma1 = close.rolling(window=10).mean()
     sma2 = close.rolling(window=50).mean()
-    sma3 = close.rolling(window=200).mean()
+    sma3 = close.rolling(window=100).mean()
     return sma1, sma2, sma3
 
 def calEMAs (close):
     ema1 = close.ewm(span=10, adjust=False).mean()
     ema2 = close.ewm(span=50, adjust=False).mean()
-    ema3 = close.ewm(span=200, adjust=False).mean()
+    ema3 = close.ewm(span=100, adjust=False).mean()
     return ema1, ema2, ema3
 
 def calcBollingerBands (df):
@@ -70,7 +72,7 @@ def calcBollingerBands (df):
     df['BBl'] = df['BBm'] - 2 * rolling_std
     return df
     
-def calculate_rsi(df, window=14):
+def calculate_rsi(df, w=14):
     close_prices = df['Close']
     # Calculate price changes (delta)
     delta = close_prices.diff()
@@ -80,8 +82,8 @@ def calculate_rsi(df, window=14):
     loss = -delta.clip(upper=0) # losses (negative deltas)
 
     # Calculate the rolling mean of gains and losses
-    avg_gain = gain.rolling(window=window, min_periods=1).mean()
-    avg_loss = loss.rolling(window=window, min_periods=1).mean()
+    avg_gain = gain.rolling(window=w, min_periods=1).mean()
+    avg_loss = loss.rolling(window=w, min_periods=1).mean()
 
     # Calculate the relative strength (RS)
     rs = avg_gain / avg_loss
@@ -92,7 +94,6 @@ def calculate_rsi(df, window=14):
     return rsi
 
 def calculate_stochrsi(df, rsi_period=14, stoch_period=20, d_period=9):
-
     # Calculate lowest low and highest high for RSI over the stoch_period
     lowest_low = df['RSI'].rolling(window=stoch_period).min()
     highest_high = df['RSI'].rolling(window=stoch_period).max()
@@ -176,19 +177,52 @@ def calculate_cci(data, period=20):
     
     return data['CCI']
 
+def calculate_dmi(df, n=14):
+    # Calculate True Range (TR)
+    df['High-Low'] = df['High'] - df['Low']
+    df['High-PrevClose'] = np.abs(df['High'] - df['Close'].shift(1))
+    df['Low-PrevClose'] = np.abs(df['Low'] - df['Close'].shift(1))
+    df['TR'] = df[['High-Low', 'High-PrevClose', 'Low-PrevClose']].max(axis=1)
+
+    # Calculate Directional Movements
+    df['+DM'] = np.where((df['High'] - df['High'].shift(1)) > 
+                               (df['Low'].shift(1) - df['Low']), 
+                               df['High'] - df['High'].shift(1), 0)
+    df['-DM'] = np.where((df['Low'].shift(1) - df['Low']) > 
+                               (df['High'] - df['High'].shift(1)), 
+                               df['Low'].shift(1) - df['Low'], 0)
+
+    # Smooth the True Range, +DM, and -DM with an exponential moving average (EMA)
+    df['TR_smooth'] = df['TR'].rolling(window=n).mean()
+    df['+DM_smooth'] = df['+DM'].rolling(window=n).mean()
+    df['-DM_smooth'] = df['-DM'].rolling(window=n).mean()
+
+    # Calculate +DI and -DI
+    df['+DI'] = 100 * (df['+DM_smooth'] / df['TR_smooth'])
+    df['-DI'] = 100 * (df['-DM_smooth'] / df['TR_smooth'])
+
+    # Calculate DX (Directional Index)
+    df['DX'] = 100 * (np.abs(df['+DI'] - df['-DI']) / (df['+DI'] + df['-DI']))
+
+    # Calculate ADX (Average Directional Index)
+    df['ADX'] = df['DX'].rolling(window=n).mean()
+
+    # Return relevant columns
+    return df[['+DI', '-DI', 'ADX']]
+    
 # Preparing the data for Machine Learning
 def prepare_ml_data(df):
     # Include candlestick pattern features and new indicators
-    features = ['SMA1', 'SMA2', 'SMA3', 'EMA1', 'EMA2', 'EMA3', 'RSI', 
+    features = ['SMA1', 'SMA2', 'SMA3', 'EMA1', 'EMA2', 'EMA3', 'RSI', 'RSI2', 
                 'BBm', 'BBu', 'BBl', 'Mom1', 'Mom2', 'ROC1', 'ROC2', 
-                'Candlesticks', 'Volume', 'ATR', 'MFI', 'CCI', 
+                'Candlesticks', 'Volume', 'ATR', 'MFI', 'CCI', '+DI', '-DI', 'ADX',
                 'StochRSI', 'StochRSI_D']
     
     df = df.dropna()
     X = df[features]
     y = df['Close']  # Target variable
     
-    scaler = MinMaxScaler() #StandardScaler()
+    scaler = MinMaxScaler()
     X_scaled = scaler.fit_transform(X)
     
     return X_scaled, y, scaler
@@ -240,36 +274,48 @@ def generate_signal(predicted_prices, current_price, df):
     BBl = last_row['BBl']
     BBu = last_row['BBu']
 
-    # Initialize signals
-    buy_signal = False
-    sell_signal = False
-    
-    # Check if current price is above the SMA and EMA thresholds
+    # Initialize score variables
+    buy_score = 0
+    sell_score = 0
+
+    # Combine conditions by adding scores for buy and sell signals
+    # Check if current price is above SMA and EMA thresholds
     if current_price > (1 + SMA2_threshold) * SMA2:
-        buy_signal = True
+        buy_score += 1
+    if current_price < (1 - SMA2_threshold) * SMA2:
+        sell_score += 1
+
     if current_price > (1 + SMA3_threshold) * SMA3:
-        buy_signal = True
+        buy_score += 1
+    if current_price < (1 - SMA3_threshold) * SMA3:
+        sell_score += 1
+
     if current_price > (1 + EMA1_threshold) * EMA1:
-        buy_signal = True
+        buy_score += 1
+    if current_price < (1 - EMA1_threshold) * EMA1:
+        sell_score += 1
+
     if current_price > (1 + EMA2_threshold) * EMA2:
-        buy_signal = True
+        buy_score += 1
+    if current_price < (1 - EMA2_threshold) * EMA2:
+        sell_score += 1
 
     # Check RSI for buy/sell signals
     if rsi < rsi_threshold_buy:
-        buy_signal = True
+        buy_score += 1
     if rsi > rsi_threshold_sell:
-        sell_signal = True
+        sell_score += 1
 
-    # Check if current price is below the Bollinger Bands Lower Band
+    # Check if current price is near the Bollinger Bands
     if current_price < (1 - bb_threshold) * BBl:
-        buy_signal = True
+        buy_score += 1
     if current_price > (1 + bb_threshold) * BBu:
-        sell_signal = True
+        sell_score += 1
 
-    # Generate final signal
-    if buy_signal and not sell_signal:
+    # Generate final signal based on scores
+    if buy_score > sell_score:
         return "BUY"
-    elif sell_signal and not buy_signal:
+    elif sell_score > buy_score:
         return "SELL"
     else:
         return "HODL / SIDELINES"
@@ -277,9 +323,9 @@ def generate_signal(predicted_prices, current_price, df):
 ##### PREDICT PRICES #####
 def predict_prices(model, recent_data, scaler, num_days=5, window_size=300):
     # Use the same features during prediction
-    features = ['SMA1', 'SMA2', 'SMA3', 'EMA1', 'EMA2', 'EMA3', 'RSI', 
+    features = ['SMA1', 'SMA2', 'SMA3', 'EMA1', 'EMA2', 'EMA3', 'RSI', 'RSI2',
                 'BBm', 'BBu', 'BBl', 'Mom1', 'Mom2', 'ROC1', 'ROC2', 
-                'Candlesticks', 'Volume', 'ATR', 'MFI', 'CCI', 
+                'Candlesticks', 'Volume', 'ATR', 'MFI', 'CCI', '+DI', '-DI', 'ADX',
                 'StochRSI', 'StochRSI_D']
     
     last_data = recent_data.copy()  # Copy the whole dataframe to modify
@@ -288,27 +334,29 @@ def predict_prices(model, recent_data, scaler, num_days=5, window_size=300):
 
     for i in range(num_days):
         # Use a rolling window of size 'window_size' from actual data (historical data)
-        sliced = last_data.iloc[-window_size:].copy()
+        xdf = last_data.iloc[-window_size:].copy()
         
         # Ensure all technical indicators are calculated before prediction
-        sliced['SMA1'], sliced['SMA2'], sliced['SMA3'] = calSMAs(sliced['Close'])
-        sliced['EMA1'], sliced['EMA2'], sliced['EMA3'] = calEMAs(sliced['Close'])
-        sliced['RSI'] = calculate_rsi(sliced)
-        sliced['MFI'] = calculate_mfi(sliced)
-        sliced['CCI'] = calculate_cci(sliced)
+        xdf['SMA1'], xdf['SMA2'], xdf['SMA3'] = calSMAs(xdf['Close'])
+        xdf['EMA1'], xdf['EMA2'], xdf['EMA3'] = calEMAs(xdf['Close'])
+        xdf['RSI'] = calculate_rsi(xdf)
+        xdf['RSI2']  = xdf['RSI'].rolling(window=28).mean()
+        xdf['MFI'] = calculate_mfi(xdf)
+        xdf['CCI'] = calculate_cci(xdf)
+        xdf[['+DI', '-DI', 'ADX']] = calculate_dmi(xdf, n=14)
 
-        sliced = calcBollingerBands(sliced)
-        sliced = calculate_stochrsi(sliced)
+        xdf = calcBollingerBands(xdf)
+        xdf = calculate_stochrsi(xdf)
         
         # Momentum and ROC
-        sliced['Mom1'] = sliced['Close'] - sliced['Close'].shift(20)
-        sliced['Mom2'] = sliced['Close'] - sliced['Close'].shift(50)
+        xdf['Mom1'] = xdf['Close'] - xdf['Close'].shift(20)
+        xdf['Mom2'] = xdf['Close'] - xdf['Close'].shift(50)
         
-        sliced['ROC1'] = sliced['Close'].pct_change(periods=20) * 100
-        sliced['ROC2'] = sliced['Close'].pct_change(periods=50) * 100  # Change to 30
+        xdf['ROC1'] = xdf['Close'].pct_change(periods=20) * 100
+        xdf['ROC2'] = xdf['Close'].pct_change(periods=50) * 100  # Change to 30
 
         # Extract features for the current prediction
-        inData = sliced[features].iloc[-1:]
+        inData = xdf[features].iloc[-1:]
         
         # Scale features
         inData_scaled = scaler.transform(inData)
