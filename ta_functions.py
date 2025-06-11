@@ -1,6 +1,7 @@
 # Importing necessary libraries
 from imports import *
 import candlesticks as cs
+from time import sleep
 
 w10 = 10
 w20 = 20
@@ -11,9 +12,14 @@ w100 = 100
 w200 = 200
 
 # Fetching historical data
-def get_stock_data(ticker, start_date, end_date):
-    stock_data = yf.download(ticker, start=start_date, end=end_date)
-    return stock_data
+def get_stock_data(ticker, start_date, end_date, TF = '1d'):
+    df = yf.download(ticker, start=start_date, end=end_date, interval = TF, auto_adjust=False)
+    # yfinance started giving multi-index df. Get rid of ticker col.
+    df = df.reset_index() 
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+    return df
 
 def get_fed_rates(start_date, end_date):
     rates = web.DataReader('FEDFUNDS', 'fred', start_date, end_date)
@@ -27,7 +33,7 @@ def add_technical_indicators (df):
     df['SMA1'], df['SMA2'], df['SMA3'] = calSMAs(close_prices)
     df['EMA1'], df['EMA2'], df['EMA3'] = calEMAs(close_prices)
     df['RSI']= calculate_rsi(df)
-    df['RSI2']  = df['RSI'].rolling(window=28).mean()
+    df['RSI2']  = df['RSI'].rolling(window=20).mean()
     df['OBV'] = calculate_obv(df)
     df['PVT'] = calculate_pvt(df)
     df['MFI'] = calculate_mfi(df)
@@ -36,14 +42,19 @@ def add_technical_indicators (df):
     
     df = calculate_stochrsi(df)
     df = calcBollingerBands(df)
-    
     df['ATR'] = calculate_atr(df.High, df.Low, df.Close)
     
-    df['Mom1'] = close_prices - close_prices.shift(20)
-    df['Mom2'] = close_prices - close_prices.shift(50)
+    df['Mom1'] = close_prices - close_prices.shift(9)
+    df['Mom2'] = close_prices - close_prices.shift(20)
     
-    df['ROC1'] = close_prices.pct_change(periods=20) * 100
-    df['ROC2'] = close_prices.pct_change(periods=50) * 100
+    df['ROC1'] = close_prices.pct_change(periods=9) * 100
+    df['ROC2'] = close_prices.pct_change(periods=20) * 100
+    
+    df['buy_volume'] = (df.Close > df.Close.shift(1)) * df['Volume']
+    df['sell_volume'] = (df.Close < df.Close.shift(1)) * df['Volume']
+
+    df['sumBuyVol'] = df['buy_volume'].rolling(window=20).sum()
+    df['sumSellVol'] = df['sell_volume'].rolling(window=20).sum()
 
     # Drop rows with NaN values resulting from rolling calculations
     df.dropna(inplace=True)
@@ -51,13 +62,13 @@ def add_technical_indicators (df):
     return df
 
 def calSMAs (close):
-    sma1 = close.rolling(window=10).mean()
+    sma1 = close.rolling(window=20).mean()
     sma2 = close.rolling(window=50).mean()
     sma3 = close.rolling(window=100).mean()
     return sma1, sma2, sma3
 
 def calEMAs (close):
-    ema1 = close.ewm(span=10, adjust=False).mean()
+    ema1 = close.ewm(span=20, adjust=False).mean()
     ema2 = close.ewm(span=50, adjust=False).mean()
     ema3 = close.ewm(span=100, adjust=False).mean()
     return ema1, ema2, ema3
@@ -122,13 +133,15 @@ def calculate_atr(high, low, close):
 def calculate_obv(data):
     obv = [0]  # Initialize OBV with 0
     for i in range(1, len(data)):
-        if data['Close'].iloc[i] > data['Close'].iloc[i-1]:
+        # Check for NaN explicitly for each value
+        if pd.isna(data['Close'].iloc[i]) or pd.isna(data['Close'].iloc[i-1]) or pd.isna(data['Volume'].iloc[i]):
+            obv.append(obv[-1])  # Append the previous OBV value if there is a NaN
+        elif data['Close'].iloc[i] > data['Close'].iloc[i-1]:
             obv.append(obv[-1] + data['Volume'].iloc[i])
         elif data['Close'].iloc[i] < data['Close'].iloc[i-1]:
             obv.append(obv[-1] - data['Volume'].iloc[i])
         else:
-            obv.append(obv[-1])  # No change if close prices are equal
-
+            obv.append(obv[-1])
     return obv
 
 def calculate_pvt(df):
@@ -216,7 +229,7 @@ def prepare_ml_data(df):
     features = ['SMA1', 'SMA2', 'SMA3', 'EMA1', 'EMA2', 'EMA3', 'RSI', 'RSI2', 
                 'BBm', 'BBu', 'BBl', 'Mom1', 'Mom2', 'ROC1', 'ROC2', 
                 'Candlesticks', 'Volume', 'ATR', 'MFI', 'CCI', '+DI', '-DI', 'ADX',
-                'StochRSI', 'StochRSI_D']
+                'StochRSI', 'StochRSI_D', 'sumBuyVol', 'sumSellVol']
     
     df = df.dropna()
     X = df[features]
@@ -321,16 +334,17 @@ def generate_signal(predicted_prices, current_price, df):
         return "HODL / SIDELINES"
     
 ##### PREDICT PRICES #####
-def predict_prices(model, recent_data, scaler, num_days=5, window_size=300):
+def predict_prices(model, data, scaler, num_days=5, window_size=300):
     # Use the same features during prediction
     features = ['SMA1', 'SMA2', 'SMA3', 'EMA1', 'EMA2', 'EMA3', 'RSI', 'RSI2',
                 'BBm', 'BBu', 'BBl', 'Mom1', 'Mom2', 'ROC1', 'ROC2', 
                 'Candlesticks', 'Volume', 'ATR', 'MFI', 'CCI', '+DI', '-DI', 'ADX',
-                'StochRSI', 'StochRSI_D']
+                'StochRSI', 'StochRSI_D', 'sumBuyVol', 'sumSellVol']
     
-    last_data = recent_data.copy()  # Copy the whole dataframe to modify
+    last_data = data.copy()  # Copy the whole dataframe to modify
     
     predicted_prices = []  # List to store predicted values
+    wt = 0.25
 
     for i in range(num_days):
         # Use a rolling window of size 'window_size' from actual data (historical data)
@@ -340,7 +354,7 @@ def predict_prices(model, recent_data, scaler, num_days=5, window_size=300):
         xdf['SMA1'], xdf['SMA2'], xdf['SMA3'] = calSMAs(xdf['Close'])
         xdf['EMA1'], xdf['EMA2'], xdf['EMA3'] = calEMAs(xdf['Close'])
         xdf['RSI'] = calculate_rsi(xdf)
-        xdf['RSI2']  = xdf['RSI'].rolling(window=28).mean()
+        xdf['RSI2']  = xdf['RSI'].rolling(window=14).mean()
         xdf['MFI'] = calculate_mfi(xdf)
         xdf['CCI'] = calculate_cci(xdf)
         xdf[['+DI', '-DI', 'ADX']] = calculate_dmi(xdf, n=14)
@@ -349,12 +363,12 @@ def predict_prices(model, recent_data, scaler, num_days=5, window_size=300):
         xdf = calculate_stochrsi(xdf)
         
         # Momentum and ROC
-        xdf['Mom1'] = xdf['Close'] - xdf['Close'].shift(20)
-        xdf['Mom2'] = xdf['Close'] - xdf['Close'].shift(50)
+        xdf['Mom1'] = xdf['Close'] - xdf['Close'].shift(9)
+        xdf['Mom2'] = xdf['Close'] - xdf['Close'].shift(20)
         
-        xdf['ROC1'] = xdf['Close'].pct_change(periods=20) * 100
-        xdf['ROC2'] = xdf['Close'].pct_change(periods=50) * 100  # Change to 30
-
+        xdf['ROC1'] = xdf['Close'].pct_change(periods=9) * 100
+        xdf['ROC2'] = xdf['Close'].pct_change(periods=20) * 100  # Change to 30
+        
         # Extract features for the current prediction
         inData = xdf[features].iloc[-1:]
         
@@ -364,16 +378,20 @@ def predict_prices(model, recent_data, scaler, num_days=5, window_size=300):
         # Predict the price for the next day using the model
         predicted_price = model.predict(inData_scaled)
         rounded_price = round(predicted_price[0], 4)
-        predicted_prices.append(rounded_price)  # Store the scalar value
+        
+        # Blend predicted price with the last actual price
+        last_actual = last_data['Close'].iloc[-1]
+        wtPrice = wt * rounded_price + (1 - wt) * last_actual
+        predicted_prices.append(wtPrice)  # Store the scalar value
         
         # Update the 'Close' price with the predicted value for the next business day
         next_index = pd.bdate_range(last_data.index[-1], periods=2)[-1]  # Next business day
         last_data.loc[next_index] = np.nan  # Add the new row
-        last_data.at[next_index, 'Close'] = rounded_price  # Only update 'Close' with predicted value
+        last_data.at[next_index, 'Close'] = wtPrice  # Only update 'Close' with predicted value
         
         # Append a new row with the predicted 'Close' value only
         new_row = pd.DataFrame({
-            'Close': [rounded_price],
+            'Close': [wtPrice],
             'Date': [next_index]
         }).set_index('Date')
         

@@ -1,6 +1,7 @@
 # Importing necessary libraries
 import os
-import datetime
+from datetime import datetime
+from time import sleep
 
 import yfinance as yf
 import pandas_datareader.data as web
@@ -20,4 +21,7 @@ from joblib import Parallel, delayed
 from sklearn.impute import SimpleImputer
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+import warnings
+warnings.filterwarnings('ignore')
 
