@@ -73,6 +73,46 @@ def calEMAs (close):
     ema3 = close.ewm(span=100, adjust=False).mean()
     return ema1, ema2, ema3
 
+def calculate_vwma(df, window=20):
+    vwma = (df['Close'] * df['Volume']).rolling(window=window).sum() / df['Volume'].rolling(window=window).sum()
+    return vwma.set_axis(df.index)  # Preserve original index
+
+def calculate_keltner(df, ema_window=20, atr_window=10, multiplier=2):
+    middle = df['Close'].ewm(span=ema_window).mean()
+    atr = calculate_atr(df.High, df.Low, df.Close)
+    upper = middle + multiplier * atr
+    lower = middle - multiplier * atr
+    return pd.DataFrame({
+        'KCm': middle,
+        'KCu': upper,
+        'KCl': lower
+    }, index=df.index)  # Explicit index
+
+def calculate_vortex(df, window=14):
+    vm_plus = abs(df['High'] - df['Low'].shift(1))
+    vm_minus = abs(df['Low'] - df['High'].shift(1))
+    atr = calculate_atr(df.High, df.Low, df.Close)
+    vi_plus = vm_plus.rolling(window).sum() / atr.rolling(window).sum()
+    vi_minus = vm_minus.rolling(window).sum() / atr.rolling(window).sum()
+    return pd.DataFrame({
+        'VI+': vi_plus,
+        'VI-': vi_minus
+    }, index=df.index)  # Explicit index
+
+def calculate_ichimoku(df):
+    high, low, close = df['High'], df['Low'], df['Close']
+    df['Tenkan'] = (high.rolling(9).max() + low.rolling(9).min()) / 2
+    df['Kijun'] = (high.rolling(26).max() + low.rolling(26).min()) / 2
+    df['Senkou_A'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
+    df['Senkou_B'] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
+    return df[['Tenkan', 'Kijun', 'Senkou_A', 'Senkou_B']]
+
+def calculate_supertrend(df, multiplier=3, window=10):
+    atr = calculate_atr(df.High, df.Low, df.Close)
+    df['Upper'] = (df['High'] + df['Low']) / 2 + multiplier * atr
+    df['Lower'] = (df['High'] + df['Low']) / 2 - multiplier * atr
+    return df[['Upper', 'Lower']]
+
 def calcBollingerBands (df):
     # Bollinger Bands
     close = df.Close
