@@ -72,20 +72,20 @@ def plot_technical_indicators(df, ticker = '   ' ):
     plt.tight_layout()
     plt.grid(alpha=0.5)
     plt.show()
-    
+
 def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5):
     # Get the current date
-    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    current_date = datetime.now().strftime('%Y-%m-%d')
     
     end_date = stock_df.index[-1]
     start_date = end_date - pd.DateOffset(months=12)
-    one_month_data = stock_df.loc[start_date:end_date]
+    one_month_data = stock_df.loc[start_date:end_date].copy()
 
     last_close = one_month_data['Close'].iloc[-1]
     
     # Calculate statistics for predictions
-    predicted_max = np.max(predicted_prices)
-    predicted_min = np.min(predicted_prices)
+    predicted_max = round(np.max(predicted_prices), 3)
+    predicted_min = round(np.min(predicted_prices), 3)
     predicted_change = ((predicted_prices[-1] - last_close) / last_close) * 100
     print("Predicted (min, max): " f'{predicted_min}, {predicted_max}')
 
@@ -99,14 +99,16 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
     combined_df = pd.concat([one_month_data[['Close']], predictions_df])
     
     # Create subplots
-    fig, axs = plt.subplots(nrows=3, ncols=1, figsize=(14, 15), dpi=300, sharex=True)
+    fig, axs = plt.subplots(nrows=4, ncols=1, figsize=(12, 12), dpi=300, sharex=True)
     
     # Plot historical closing prices and indicators (EMA50, EMA200)
     axs[0].plot(one_month_data.index, one_month_data['Close'], label='Historical Close Prices', 
                 color='gray', alpha=0.7)
-    axs[0].plot(one_month_data.index, one_month_data['EMA1'], label='EMA Short', 
+    axs[0].plot(one_month_data.index, one_month_data['EMA1'], label='EMA20', 
+                color='orange', alpha=0.7)
+    axs[0].plot(one_month_data.index, one_month_data['EMA2'], label='EMA50', 
                 color='red', alpha=0.7)
-    axs[0].plot(one_month_data.index, one_month_data['EMA2'], label='EMA Long', 
+    axs[0].plot(one_month_data.index, one_month_data['EMA3'], label='EMA100', 
                 color='magenta', alpha=0.7)
     
     # Plot predicted prices
@@ -117,7 +119,7 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
     axs[0].set_title(f'{ticker} {current_date} - Closing Prices and ML Predictions (TIs w/o News/Media)')
     axs[0].set_xlabel('Date')
     axs[0].set_ylabel('Price')
-    axs[0].legend()
+    axs[0].legend(loc = 'upper left')
     axs[0].grid(True)
     axs[0].tick_params(axis='x', rotation=0)
     
@@ -140,7 +142,7 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
     axs[1].plot(one_month_data.index, one_month_data['OBV'], label='On Balance Volume', 
                 color='gray', alpha=0.7)
     axs[1].set_ylabel('OBV')
-    axs[1].legend()
+    axs[1].legend(loc = 'upper left')
     axs[1].grid(alpha=0.5)
 
     # Plot Relative Strength Index (RSI) on the third subplot
@@ -150,10 +152,40 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
                 color='red', alpha=0.7)
     axs[2].axhline(70, color='red', linestyle='--', alpha=0.5)
     axs[2].axhline(30, color='green', linestyle='--', alpha=0.5)
+ 
+    # Fill area above 70 (overbought)
+    axs[2].fill_between(one_month_data.index, one_month_data['RSI'], 70, 
+                    where=(one_month_data['RSI'] > 70), 
+                    color='green', alpha=0.3, interpolate=True)
+    
+    # Fill area below 30 (oversold)
+    axs[2].fill_between(one_month_data.index, one_month_data['RSI'], 30, 
+                    where=(one_month_data['RSI'] < 30), 
+                    color='red', alpha=0.3, interpolate=True)
+    
     axs[2].set_ylabel('RSI')
-    axs[2].legend()
+    axs[2].legend(loc = 'upper left')
     axs[2].grid(alpha=0.5)
+    
+    buyVol = one_month_data['sumBuyVol']
+    sellVol = one_month_data['sumSellVol']
 
+    axs[3].plot(one_month_data.index, buyVol, label='Cumltv. Buys', 
+                color='green', alpha=0.7)
+    axs[3].plot(one_month_data.index, sellVol, label='Cumltv. Sells', 
+                color='red', alpha=0.7)
+
+    # Fill areas of buy/sell pressure
+    axs[3].fill_between(one_month_data.index, buyVol, sellVol, where=(buyVol > sellVol), 
+                    color='green', alpha=0.3, interpolate=True)
+    axs[3].fill_between(one_month_data.index, sellVol, buyVol, where=(buyVol < sellVol), 
+                    color='red', alpha=0.3, interpolate=True)
+    
+    axs[3].set_ylabel('20-period Cumulative Buy-Sell')
+    axs[3].legend(loc = 'upper left')
+    axs[3].grid(alpha=0.5)
+
+    
     # Adjust layout to prevent overlap
     fig.tight_layout()
 
@@ -169,6 +201,7 @@ def plot_with_predictions(stock_df, predicted_prices, ticker='NONE', num_days=5)
     # Display the plot
     plt.show()
     plt.close()
+
 
 def plot_obv_pvt(df, pvt=True, obv=True, ticker='NONE', nrMonths = 12):
     end_date = df.index[-1]
@@ -196,7 +229,9 @@ def plot_obv_pvt(df, pvt=True, obv=True, ticker='NONE', nrMonths = 12):
     if pvt:
         # Plot PVT on the secondary axis
         ax2 = ax1.twinx()
+        sma1 = df2['PVT'].rolling(window=21).mean()
         ax2.plot(df2.index, df2['PVT'], color='blue', label='Price Volume Trend (PVT)')
+        ax2.plot(df2.index, sma1, color='blue', label='SMA PVT')
         ax2.set_ylabel('PVT', color='blue')
         ax2.tick_params(axis='y', labelcolor='blue')
         lines2, labels2 = ax2.get_legend_handles_labels()
@@ -223,4 +258,46 @@ def plot_obv_pvt(df, pvt=True, obv=True, ticker='NONE', nrMonths = 12):
 
     plt.title(f'{ticker} {end_date} - Close Price, PVT, and Scaled OBV Combined')
     plt.grid(True)
+    plt.show()
+
+
+def plot_pvt(df, pvt=True, ticker='NONE', nrMonths=12):
+    # Ensure the DataFrame index is a datetime index
+    if not pd.api.types.is_datetime64_any_dtype(df.index):
+        raise ValueError("DataFrame index must be a datetime index.")
+    
+    # Define the date range for plotting
+    end_date = df.index[-1]
+    start_date = end_date - pd.DateOffset(months=nrMonths)
+    
+    # Slice the DataFrame for the given date range
+    df2 = df.loc[start_date:end_date].copy()
+
+    # Create a figure and axis for plotting
+    fig, ax1 = plt.subplots(figsize=(14, 8))
+
+    # Plot Close Price on the primary y-axis
+    ax1.plot(df2.index, df2['Close'], color='black', label='Close Price')
+    ax1.set_ylabel('Close Price', color='black')
+    ax1.tick_params(axis='y', labelcolor='black')
+
+    # Create a second y-axis for PVT
+    ax2 = ax1.twinx()
+
+    # Plot PVT and its SMA on the secondary y-axis
+    ax2.plot(df2.index, df2['PVT'], color='blue', label='PVT')
+    sma1 = df2['PVT'].rolling(window=21).mean()
+    ax2.plot(df2.index, sma1, color='red', label='Long PVT (21-Day SMA)')
+    
+    ax2.set_ylabel('PVT', color='blue')
+    ax2.tick_params(axis='y', labelcolor='blue')
+
+    # Adding a title and grid
+    plt.title(f'{ticker} {end_date.strftime("%Y-%m-%d")} - Close Price and PVT')
+    ax1.grid(True)
+    
+    # Combine legends
+    ax1.legend(loc='upper left')
+    ax2.legend(loc='upper right')
+
     plt.show()
